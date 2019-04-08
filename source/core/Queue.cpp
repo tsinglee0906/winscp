@@ -2028,6 +2028,30 @@ TQueueItemProxy * __fastcall TTerminalQueueStatus::FindByQueueItem(
   return NULL;
 }
 //---------------------------------------------------------------------------
+// TBootstrapQueueItem
+//---------------------------------------------------------------------------
+__fastcall TBootstrapQueueItem::TBootstrapQueueItem()
+{
+  FInfo->SingleFile = true;
+}
+//---------------------------------------------------------------------------
+void __fastcall TBootstrapQueueItem::DoExecute(TTerminal * DebugUsedArg(Terminal))
+{
+  // noop
+}
+//---------------------------------------------------------------------------
+UnicodeString __fastcall TBootstrapQueueItem::StartupDirectory() const
+{
+  return UnicodeString();
+}
+//---------------------------------------------------------------------------
+bool __fastcall TBootstrapQueueItem::Complete()
+{
+  TQueueItem::Complete();
+  // To hide the item, even if "keep done items" is on
+  return false;
+}
+//---------------------------------------------------------------------------
 // TLocatedQueueItem
 //---------------------------------------------------------------------------
 __fastcall TLocatedQueueItem::TLocatedQueueItem(TTerminal * Terminal) :
@@ -2862,11 +2886,6 @@ bool __fastcall TTerminalThread::Release()
   if (Result)
   {
     delete this;
-  }
-  else
-  {
-    // only now has the owner released ownership of the thread, so we are safe to kill outselves.
-    Terminate();
   }
   return Result;
 }

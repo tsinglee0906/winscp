@@ -7,7 +7,7 @@
 #define WebForum WebRoot+"forum/"
 #define WebDocumentation WebRoot+"eng/docs/"
 #define WebReport "https://winscp.net/install.php"
-#define Year 2018
+#define Year 2019
 #define EnglishLang "English"
 #define SetupTypeData "SetupType"
 #define InnoSetupReg "Software\Microsoft\Windows\CurrentVersion\Uninstall\" + AppId + "_is1"
@@ -228,7 +228,7 @@ Name: "{commondesktop}\WinSCP"; Filename: "{app}\WinSCP.exe"; \
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\WinSCP"; \
   Filename: "{app}\WinSCP.exe"; Tasks: quicklaunchicon
 ; This is created when sendtohook task is selected
-Name: "{sendto}\{cm:SendToHookNew}"; Filename: "{app}\WinSCP.exe"; \
+Name: "{usersendto}\{cm:SendToHookNew}"; Filename: "{app}\WinSCP.exe"; \
   Parameters: "/upload"; Tasks: sendtohook
 
 [InstallDelete]
@@ -300,7 +300,7 @@ Source: "{#PuttySourceDir}\puttygen.exe"; DestDir: "{app}\PuTTY"; \
 Source: "{#ExtensionsDir}\*.*"; DestDir: "{app}\Extensions"
 #endif
 #ifdef Sponsor
-Source: "{#Sponsor}\*.*"; Flags: dontcopy
+Source: "{#Sponsor}\*.*"; Flags: dontcopy skipifsourcedoesntexist
 
   #define SponsorImages
   #if FindHandle = FindFirst(Sponsor + "\*.*", 0)
@@ -963,7 +963,7 @@ begin
   WizardForm.LicenseNotAcceptedRadio.Visible := False;
   WizardForm.LicenseMemo.Height :=
     GetBottom(WizardForm.LicenseNotAcceptedRadio) -
-    WizardForm.LicenseMemo.Top - 5;
+    WizardForm.LicenseMemo.Top - ScaleY(5);
 
   // hide installation types combo
   WizardForm.TypesCombo.Visible := False;

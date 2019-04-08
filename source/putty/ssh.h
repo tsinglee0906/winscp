@@ -211,6 +211,9 @@ int detect_attack(void *handle, unsigned char *buf, uint32 len,
  * SSH2 RSA key exchange functions
  */
 struct ssh_hash;
+struct ssh_rsa_kex_extra {
+    int minklen;
+};
 void *ssh_rsakex_newkey(char *data, int len);
 void ssh_rsakex_freekey(void *key);
 int ssh_rsakex_klen(void *key);
@@ -500,6 +503,7 @@ void aes256_key(void *handle, unsigned char *key);
 void aes_iv(void *handle, unsigned char *iv);
 void aes_ssh2_encrypt_blk(void *handle, unsigned char *blk, int len);
 void aes_ssh2_decrypt_blk(void *handle, unsigned char *blk, int len);
+void aes_ssh2_sdctr(void *handle, unsigned char *blk, int len);
 
 /*
  * PuTTY version number formatted as an SSH version string. 

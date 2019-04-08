@@ -281,30 +281,22 @@ void __fastcall EnableControl(TControl * Control, bool Enable)
   }
 };
 //---------------------------------------------------------------------------
+void __fastcall DoReadOnlyControl(TControl * Control, bool ReadOnly, bool Color);
+//---------------------------------------------------------------------------
 void __fastcall ReadOnlyAndEnabledControl(TControl * Control, bool ReadOnly, bool Enabled)
 {
-  if (dynamic_cast<TCustomEdit *>(Control) != NULL)
+  // Change color only in only one of EnableControl and DoReadOnlyControl to prevent flicker
+  if (ReadOnly)
   {
     DebugAssert(dynamic_cast<TWinControl *>(Control)->ControlCount == 0);
-    DebugAssert(dynamic_cast<TMemo *>(Control) == NULL);
-
-    if (ReadOnly)
-    {
-      Control->Enabled = Enabled;
-      ReadOnlyControl(Control, true);
-    }
-    else
-    {
-      // ReadOnlyControl(..., false) would set color to clWindow,
-      // but we want to reflect the Enabled state and avoid flicker.
-      ((TEdit*)Control)->ReadOnly = false;
-
-      EnableControl(Control, Enabled);
-    }
+    // As EnableControl, but with no color change
+    Control->Enabled = Enabled;
+    DoReadOnlyControl(Control, ReadOnly, true);
   }
   else
   {
-    DebugFail();
+    DoReadOnlyControl(Control, ReadOnly, false);
+    EnableControl(Control, Enabled);
   }
 }
 //---------------------------------------------------------------------------
@@ -317,7 +309,7 @@ static void __fastcall ReadOnlyEditContextPopup(void * /*Data*/, TObject * Sende
   }
 }
 //---------------------------------------------------------------------------
-void __fastcall ReadOnlyControl(TControl * Control, bool ReadOnly)
+void __fastcall DoReadOnlyControl(TControl * Control, bool ReadOnly, bool Color)
 {
   if (dynamic_cast<TCustomEdit *>(Control) != NULL)
   {
@@ -326,7 +318,10 @@ void __fastcall ReadOnlyControl(TControl * Control, bool ReadOnly)
     TMemo * Memo = dynamic_cast<TMemo *>(Control);
     if (ReadOnly)
     {
-      SetParentColor(Control);
+      if (Color)
+      {
+        SetParentColor(Control);
+      }
       if (Memo != NULL)
       {
         // Is true by default and makes the control swallow not only
@@ -357,7 +352,10 @@ void __fastcall ReadOnlyControl(TControl * Control, bool ReadOnly)
     }
     else
     {
-      Edit->Color = clWindow;
+      if (Color)
+      {
+        Edit->Color = clWindow;
+      }
       // not supported atm, we need to persist previous value of WantReturns
       DebugAssert(Memo == NULL);
 
@@ -378,6 +376,12 @@ void __fastcall ReadOnlyControl(TControl * Control, bool ReadOnly)
   }
 }
 //---------------------------------------------------------------------------
+void __fastcall ReadOnlyControl(TControl * Control, bool ReadOnly)
+{
+  DoReadOnlyControl(Control, ReadOnly, true);
+}
+//---------------------------------------------------------------------------
+// Some of MainFormLike code can now be obsolete, thanks to Application->OnGetMainFormHandle.
 static TForm * MainLikeForm = NULL;
 //---------------------------------------------------------------------------
 TForm * __fastcall GetMainForm()
@@ -842,6 +846,79 @@ static void __fastcall FormShowingChanged(TForm * Form, TWndMethod WndProc, TMes
   }
 }
 //---------------------------------------------------------------------------
+static TCustomForm * WindowPrintForm = NULL;
+static DWORD WindowPrintPrevClick = 0;
+static unsigned int WindowPrintClickCount = 0;
+//---------------------------------------------------------------------------
+void __fastcall CountClicksForWindowPrint(TForm * Form)
+{
+  if (WinConfiguration->AllowWindowPrint)
+  {
+    DWORD Tick = GetTickCount();
+    if (WindowPrintForm != Form)
+    {
+      WindowPrintForm = Form;
+      WindowPrintClickCount = 0;
+    }
+    if (WindowPrintPrevClick < Tick - 500)
+    {
+      WindowPrintClickCount = 0;
+    }
+    WindowPrintClickCount++;
+    WindowPrintPrevClick = Tick;
+    if (WindowPrintClickCount == 3)
+    {
+      WindowPrintClickCount = 0;
+
+      TInstantOperationVisualizer Visualizer;
+
+      // get the device context of the screen
+      HDC ScreenDC = CreateDC(L"DISPLAY", NULL, NULL, NULL);
+      // and a device context to put it in
+      HDC MemoryDC = CreateCompatibleDC(ScreenDC);
+
+      try
+      {
+        bool Sizable = (Form->BorderStyle == bsSizeable);
+        int Frame = GetSystemMetrics(Sizable ? SM_CXSIZEFRAME : SM_CXFIXEDFRAME) - 1;
+        int Width = Form->Width - 2*Frame;
+        int Height = Form->Height - Frame;
+
+        // maybe worth checking these are positive values
+        HBITMAP Bitmap = CreateCompatibleBitmap(ScreenDC, Width, Height);
+        try
+        {
+          // get a new bitmap
+          HBITMAP OldBitmap = static_cast<HBITMAP>(SelectObject(MemoryDC, Bitmap));
+
+          BitBlt(MemoryDC, 0, 0, Width, Height, ScreenDC, Form->Left + Frame, Form->Top, SRCCOPY);
+          Bitmap = static_cast<HBITMAP>(SelectObject(MemoryDC, OldBitmap));
+
+          OpenClipboard(NULL);
+          try
+          {
+            EmptyClipboard();
+            SetClipboardData(CF_BITMAP, Bitmap);
+          }
+          __finally
+          {
+            CloseClipboard();
+          }
+        }
+        __finally
+        {
+          DeleteObject(Bitmap);
+        }
+      }
+      __finally
+      {
+        DeleteDC(MemoryDC);
+        DeleteDC(ScreenDC);
+      }
+    }
+  }
+}
+//---------------------------------------------------------------------------
 inline void __fastcall DoFormWindowProc(TCustomForm * Form, TWndMethod WndProc,
   TMessage & Message)
 {
@@ -881,6 +958,11 @@ inline void __fastcall DoFormWindowProc(TCustomForm * Form, TWndMethod WndProc,
   else if (Message.Msg == WM_DPICHANGED)
   {
     ChangeFormPixelsPerInch(AForm, LOWORD(Message.WParam));
+    WndProc(Message);
+  }
+  else if ((Message.Msg == WM_LBUTTONDOWN) || (Message.Msg == WM_LBUTTONDBLCLK))
+  {
+    CountClicksForWindowPrint(AForm);
     WndProc(Message);
   }
   else
@@ -2263,9 +2345,10 @@ void __fastcall SetLabelHintPopup(TLabel * Label, const UnicodeString & Hint)
   Label->ShowHint = (Rect.Bottom > Label->Height);
 }
 //---------------------------------------------------------------------------
-bool __fastcall HasLabelHintPopup(TLabel * Label, const UnicodeString & HintStr)
+bool __fastcall HasLabelHintPopup(TControl * Control, const UnicodeString & HintStr)
 {
-  return (Label->Caption == HintStr);
+  TLabel * HintLabel = dynamic_cast<TLabel *>(Control);
+  return (HintLabel != NULL) && (GetShortHint(HintLabel->Caption) == HintStr);
 }
 //---------------------------------------------------------------------------
 Forms::TMonitor *  __fastcall FormMonitor(TCustomForm * Form)
@@ -2558,6 +2641,11 @@ void TDesktopFontManager::UpdateControl(TControl * Control)
     DesktopFont->Height = ScaleByPixelsPerInchFromSystem(DesktopFont->Height, Control);
     DesktopFont->PixelsPerInch = PublicControl->Font->PixelsPerInch;
   }
+
+  // Neither CreateFontIndirect nor RestoreFont set  color, so we should should have the default set by TFont constructor here.
+  DebugAssert(DesktopFont->Color == clWindowText);
+  // Preserve color (particularly whice color of file panel font in dark mode)
+  DesktopFont->Color = PublicControl->Font->Color;
 
   PublicControl->Font->Assign(DesktopFont.get());
 }
